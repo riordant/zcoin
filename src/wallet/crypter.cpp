@@ -257,6 +257,17 @@ bool CCryptoKeyStore::AddKeyPubKey(const CKey& key, const CPubKey &pubkey)
     return true;
 }
 
+bool CCryptoKeyStore::AddBip47KeyPubkey(const CKey& key, const CPubKey &pubkey)
+{
+    {
+        LOCK(cs_KeyStore);
+        if (!IsCrypted())
+            CBasicKeyStore::AddKeyPubKey(key, pubkey);
+        mapBip47Keys[pubkey.GetID()] = key;
+    }
+    return true;
+}
+
 
 bool CCryptoKeyStore::AddCryptedKey(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret)
 {
@@ -275,7 +286,8 @@ bool CCryptoKeyStore::GetKey(const CKeyID &address, CKey& keyOut) const
     {
         LOCK(cs_KeyStore);
         if (!IsCrypted())
-            return CBasicKeyStore::GetKey(address, keyOut);
+            if (CBasicKeyStore::HaveKey(address))
+                return CBasicKeyStore::GetKey(address, keyOut);
 
         CryptedKeyMap::const_iterator mi = mapCryptedKeys.find(address);
         if (mi != mapCryptedKeys.end())
@@ -283,6 +295,13 @@ bool CCryptoKeyStore::GetKey(const CKeyID &address, CKey& keyOut) const
             const CPubKey &vchPubKey = (*mi).second.first;
             const std::vector<unsigned char> &vchCryptedSecret = (*mi).second.second;
             return DecryptKey(vMasterKey, vchCryptedSecret, vchPubKey, keyOut);
+        }
+
+        KeyMap::const_iterator miBip47 = mapBip47Keys.find(address);
+        if (miBip47 != mapBip47Keys.end())
+        {
+            keyOut = miBip47->second;
+            return true;
         }
     }
     return false;
@@ -293,12 +312,20 @@ bool CCryptoKeyStore::GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) co
     {
         LOCK(cs_KeyStore);
         if (!IsCrypted())
-            return CBasicKeyStore::GetPubKey(address, vchPubKeyOut);
+            if (CBasicKeyStore::HaveKey(address))
+                return CBasicKeyStore::GetPubKey(address, vchPubKeyOut);
 
         CryptedKeyMap::const_iterator mi = mapCryptedKeys.find(address);
         if (mi != mapCryptedKeys.end())
         {
             vchPubKeyOut = (*mi).second.first;
+            return true;
+        }
+
+        KeyMap::const_iterator miBip47 = mapBip47Keys.find(address);
+        if (miBip47 != mapBip47Keys.end())
+        {
+            vchPubKeyOut = (*miBip47).second.GetPubKey();
             return true;
         }
         // Check for watch-only pubkeys

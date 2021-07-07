@@ -7,7 +7,7 @@
 #include <secp256k1.h>
 #include <secp256k1_recovery.h>
 #include <secp256k1_ecdh.h>
-
+#include <iostream>
 namespace
 {
 /* Global secp256k1_context object used for verification. */
@@ -237,7 +237,7 @@ bool CPubKey::Derive(CPubKey& pubkeyChild, ChainCode &ccChild, unsigned int nChi
     if (!secp256k1_ec_pubkey_parse(secp256k1_context_verify, &pubkey, &(*this)[0], size())) {
         return false;
     }
-    if (!secp256k1_ec_pubkey_tweak_add(secp256k1_context_verify, &pubkey, out)) {
+    if (!secp256k1_ec_pubkey_tweak_add(secp256k1_context_verify, &pubkey, out)) {        
         return false;
     }
     unsigned char pub[33];

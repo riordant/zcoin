@@ -11,6 +11,7 @@
 
 #include "amount.h"
 #include "znodelist.h"
+#include "paymentcodepage.h"
 #include "masternodelist.h"
 #include "sigmadialog.h"
 
@@ -39,6 +40,7 @@ class TXHistoryDialog;
 class WalletModel;
 class AddressBookPage;
 class ZerocoinPage;
+class PaymentcodePage;
 class Zc2SigmaPage;
 
 QT_BEGIN_NAMESPACE
@@ -89,6 +91,9 @@ private:
     WalletModel *walletModel;
 
     OverviewPage *overviewPage;
+
+    PaymentcodePage *paymentcodePage;
+
 #ifdef ENABLE_ELYSIUM
     ElyAssetsDialog *elyAssetsPage;
     QWidget *toolboxPage;
@@ -147,6 +152,8 @@ public Q_SLOTS:
     void gotoReceiveCoinsPage();
     /** Switch to send coins page */
     void gotoSendCoinsPage(QString addr = "");
+    /** Switch to paymentcode page */
+    void gotoPaymentcodePage();
     /** Switch to zerocoin page */
     void gotoZerocoinPage();
     /** Switch to sigma page */

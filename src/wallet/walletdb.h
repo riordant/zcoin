@@ -14,8 +14,9 @@
 #include "streams.h"
 #include "key.h"
 
-#include "../hdmint/hdmint.h"
-#include "../hdmint/mintpool.h"
+#include "hdmint/hdmint.h"
+#include "hdmint/mintpool.h"
+#include "bip47/paymentchannel.h"
 #include "../secp256k1/include/GroupElement.h"
 #include "../secp256k1/include/Scalar.h"
 
@@ -49,6 +50,7 @@ class CZerocoinEntry;
 class CSigmaEntry;
 class CZerocoinSpendEntry;
 class CSigmaSpendEntry;
+class CBIP47PaymentChannel;
 
 /** Error statuses for the wallet database */
 enum DBErrors
@@ -213,6 +215,8 @@ public:
     bool WritePaymentRequestAddress(const std::string& address);
     bool ReadPaymentRequestAddress(std::string& address);
     bool ErasePaymentRequestAddress();
+    bool WriteRemindRAPDescription(bool show);
+    bool ReadRemindRAPDescription();
 #endif
 
     bool WriteOrderPosNext(int64_t nOrderPosNext);
@@ -265,6 +269,8 @@ public:
     bool ReadCalculatedZCBlock(int& height);
     bool WriteCalculatedZCBlock(int height);
 
+    bool SavePaymentChannels(std::string paymentCode, const std::vector<CBIP47PaymentChannel>& channels);
+
     DBErrors ReorderTransactions(CWallet* pwallet);
     DBErrors LoadWallet(CWallet* pwallet);
     DBErrors FindWalletTx(CWallet* pwallet, std::vector<uint256>& vTxHash, std::vector<CWalletTx>& vWtx);
@@ -304,8 +310,27 @@ public:
     bool WriteHDChain(const CHDChain& chain);
     bool WriteMnemonic(const MnemonicContainer& mnContainer);
 
+    // @bip47 channel data write
+    void ListCBIP47PaymentChannel(std::map <string, std::vector<CBIP47PaymentChannel>> &mPchannels);
+
+    void SavePaymentCodes(const std::vector<string>& paymentCodes);
+    void ReadPaymentCodes(std::vector<string>& paymentCodes);
+
+    /// Write destination data key,value tuple to database
+    bool WritePcodeNotificationData(const std::string &rpcodestr, const std::string &key, const std::string &value);
+    bool WriteBip47SeedMaster(const vector<unsigned char> &seedmaster);
+    bool ReadBip47SeedMaster(vector<unsigned char> &seedmaster);
+    /// Erase destination data tuple from wallet database
+    bool ErasePcodeNotificationData(const std::string &rpcodestr, const std::string &key);
+    bool loadPCodeNotificationTransactions(std::vector<std::string>& vPCodeNotificationTransactions);
+    
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();    
+
+    bool ReadLastPCodeIndex(int& lastIndex);
+    bool UpdateLastPCodeIndex();
+    std::string ReadPaymentCodeLabel(std::string paymentCode);
+    bool WritePaymentCodeLabel(std::string paymentCode, std::string label);
 
 #ifdef ENABLE_ELYSIUM
 

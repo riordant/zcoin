@@ -295,6 +295,14 @@ BITCOIN_CORE_H = \
   hdmint/mintpool.h \
   hdmint/tracker.h \
   hdmint/wallet.h \
+  bip47/account.h \
+  bip47/address.h \
+  bip47/paymentchannel.h \
+  bip47/utils.h \
+  bip47/paymentaddress.h \
+  bip47/paymentcode.h \
+  bip47/channeladdress.h \
+  bip47/secretpoint.h \
   zerocoin.h \
   sigma.h \
   blacklists.h \
@@ -509,6 +517,14 @@ libbitcoin_wallet_a_SOURCES = \
   hdmint/tracker.cpp \
   policy/rbf.cpp \
   primitives/zerocoin.cpp \
+  bip47/account.cpp \
+  bip47/address.cpp \
+  bip47/paymentchannel.cpp \
+  bip47/utils.cpp \
+  bip47/paymentaddress.cpp \
+  bip47/paymentcode.cpp \
+  bip47/channeladdress.cpp \
+  bip47/secretpoint.cpp \
   $(BITCOIN_CORE_H)
 
 # crypto primitives library

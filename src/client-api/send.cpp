@@ -276,6 +276,7 @@ UniValue txfee(Type type, const UniValue& data, const UniValue& auth, bool fHelp
         throw JSONAPIError(API_WALLET_INSUFFICIENT_FUNDS, strFailReason);  
     
     ret.push_back(Pair("fee", nFeeRequired));
+    LogPrintf("Transaction fee:%d\n", nFeeRequired);
     return ret;
 }
 
@@ -416,6 +417,94 @@ UniValue paymentrequest(Type type, const UniValue& data, const UniValue& auth, b
     return true;
 }
 
+static void SendMoney(CWallet * const pwallet, const CTxDestination &address, CAmount nValue, bool fSubtractFeeFromAmount, CWalletTx& wtxNew)
+{
+    CAmount curBalance = pwallet->GetBalance();
+
+    // Check amount
+    if (nValue <= 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid amount");
+
+    if (nValue > curBalance)
+        throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Insufficient funds");
+
+    if (pwallet->GetBroadcastTransactions() && !g_connman) {
+        throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
+    }
+
+    // Parse Zcoin address
+    CScript scriptPubKey = GetScriptForDestination(address);
+
+    // Create and send the transaction
+    CReserveKey reservekey(pwallet);
+    CAmount nFeeRequired;
+    std::string strError;
+    vector<CRecipient> vecSend;
+    int nChangePosRet = -1;
+    CRecipient recipient = {scriptPubKey, nValue, fSubtractFeeFromAmount};
+    vecSend.push_back(recipient);
+    if (!pwallet->CreateTransaction(vecSend, wtxNew, reservekey, nFeeRequired, nChangePosRet, strError)) {
+        if (!fSubtractFeeFromAmount && nValue + nFeeRequired > curBalance)
+            strError = strprintf("Error: This transaction requires a transaction fee");
+        throw JSONRPCError(RPC_WALLET_ERROR, strError);
+    }
+    CValidationState state;
+    if (!pwallet->CommitTransaction(wtxNew, reservekey, g_connman.get(), state)) {
+        strError = strprintf("Error: The transaction was rejected! Reason given: %s", state.GetRejectReason());
+        throw JSONRPCError(RPC_WALLET_ERROR, strError);
+    }
+}
+
+UniValue sendtopaymentcode(Type type, const UniValue& data, const UniValue& auth, bool fHelp)
+{
+    if (!EnsureWalletIsAvailable(pwalletMain, false))
+        return NullUniValue;
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    CCoinControl cc;
+    bool hasCoinControl = GetCoinControl(data, cc);
+    string pcodeString = find_value(data, "paymentCode").get_str();
+    string myPCodeString = find_value(data, "myPaymentCode").get_str();
+    string label = find_value(data, "label").get_str();
+    int accIndex = pwalletMain->getBIP47AccountIndex(myPCodeString);
+
+    CPaymentCode paymentCode(pcodeString);
+
+    // Amount
+    CAmount nAmount = find_value(data, "amount").get_int64();
+    UniValue feePerKb;
+    bool fSubtractFeeFromAmount;
+    feePerKb = find_value(data,"feePerKb");
+    fSubtractFeeFromAmount = find_value(data, "subtractFeeFromAmount").get_bool();
+    
+    CBIP47PaymentChannel* channel = pwalletMain->getPaymentChannelFromPaymentCode(paymentCode.toString(), myPCodeString);
+    if (label != "") 
+    {
+        pwalletMain->setBip47ChannelLabel(paymentCode.toString(), label);
+    }
+
+    if (channel->isNotificationTransactionSent()) 
+    {
+        std::string addressTo = pwalletMain->getCurrentOutgoingAddress(*channel);
+        CBitcoinAddress pcAddress(addressTo);
+        CWalletTx wtx;
+
+        channel->addAddressToOutgoingAddresses(addressTo);
+        channel->incrementOutgoingIndex();
+        SendMoney(pwalletMain, pcAddress.Get(), nAmount, fSubtractFeeFromAmount, wtx);
+        int index = pwalletMain->getBIP47AccountIndex(channel->getMyPaymentCode());
+        pwalletMain->savePaymentCode(pcodeString, index, wtx.GetHash());
+        pwalletMain->saveCBIP47PaymentChannelData(pcodeString);
+
+        return wtx.GetHash().GetHex();
+    }
+    else
+    {
+        return pwalletMain->makeNotificationTransaction(paymentCode.toString(), accIndex);
+    }   
+}
+
 
 static const CAPICommand commands[] =
 { //  category              collection         actor (function)          authPort   authPassphrase   warmupOk
@@ -423,8 +512,8 @@ static const CAPICommand commands[] =
     { "send",            "paymentRequest",         &paymentrequest,         true,      false,           false  },
     { "send",            "paymentRequestAddress",  &paymentrequestaddress,  true,      false,           false  },
     { "send",            "txFee",                  &txfee,                  true,      false,           false  },
-    { "send",            "sendZcoin",              &sendzcoin,              true,      true,            false  }
-
+    { "send",            "sendZcoin",              &sendzcoin,              true,      true,            false  },
+    { "send",            "sendToPaymentCode",              &sendtopaymentcode,              true,      true,            false  }
 };
 
 void RegisterSendAPICommands(CAPITable &tableAPI)

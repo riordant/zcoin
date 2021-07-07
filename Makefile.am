@@ -159,6 +159,9 @@ $(BITCOIN_QT_BIN): FORCE
 $(BITCOIND_BIN): FORCE
 	$(MAKE) -C src $(@F)
 
+$(BITCOIN_BIP47_BIN): FORCE
+	$(MAKE) -C src $(@F)
+
 $(BITCOIN_CLI_BIN): FORCE
 	$(MAKE) -C src $(@F)
 

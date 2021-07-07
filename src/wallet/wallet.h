@@ -29,6 +29,9 @@
 
 #include "primitives/zerocoin.h"
 
+#include "bip47/paymentcode.h"
+#include "bip47/account.h"
+
 
 #include <algorithm>
 #include <atomic>
@@ -103,6 +106,9 @@ const uint32_t BIP44_MINT_INDEX = 0x2;
 const uint32_t BIP44_ELYSIUM_MINT_INDEX_V0 = 0x3;
 const uint32_t BIP44_ELYSIUM_MINT_INDEX_V1 = 0x4;
 #endif
+
+// @todo Could be required later 
+const uint32_t BIP47_INDEX = 0x47;
 
 class CBlockIndex;
 class CCoinControl;
@@ -310,7 +316,7 @@ public:
 class CWalletTx : public CMerkleTx
 {
 private:
-    const CWallet* pwallet;
+    const CWallet* pwallet; // lgtm [cpp/class-many-fields]
 
 public:
     mapValue_t mapValue;
@@ -654,10 +660,12 @@ enum MintAlgorithm {
  * A CWallet is an extension of a keystore, which also maintains a set of transactions and balances,
  * and provides the ability to create new transactions.
  */
-class CWallet : public CCryptoKeyStore, public CValidationInterface
+class CWallet : public CCryptoKeyStore, public CValidationInterface // lgtm [cpp/class-many-fields]
 {
 private:
     static std::atomic<bool> fFlushThreadRunning;
+    bool bip47Loaded;
+    CBlockIndex* pindexRescanForBip47;
 
     /**
      * Select a set of coins such that nValueRet >= nTargetValue and at least
@@ -791,6 +799,7 @@ public:
         vecAnonymizableTallyCached.clear();
         vecAnonymizableTallyCachedNonDenom.clear();
         zwallet = NULL;
+        bip47Loaded = false;
     }
 
     std::map<uint256, CWalletTx> mapWallet;
@@ -852,8 +861,10 @@ public:
      * keystore implementation
      * Generate a new key
      */
+    CPubKey GenerateBip47NewKey(uint32_t nChange=0); // Bip47
     CPubKey GenerateNewKey(uint32_t nChange=0, bool fWriteChain=true);
     void DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret);
+
     //! Adds a key to the store, and saves it to disk.
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey) override;
     //! Adds a key to the store, without saving it to disk (used by LoadWallet)
@@ -1257,6 +1268,8 @@ public:
 
     /** Watch-only address added */
     boost::signals2::signal<void (bool fHaveWatchOnly)> NotifyWatchonlyChanged;
+    
+    boost::signals2::signal<void ()> NotifyPaymentCodeTx;
 
     /** Inquire whether this wallet broadcasts transactions. */
     bool GetBroadcastTransactions() const { return fBroadcastTransactions; }
@@ -1286,6 +1299,7 @@ public:
     static bool ParameterInteraction();
 
     bool BackupWallet(const std::string& strDest);
+    bool BackupBip47Wallet(const std::string& strDest);
 
     /* Set the HD chain model (chain child index counters) */
     bool SetHDChain(const CHDChain& chain, bool memonly, bool& upgradeChain, bool genNewKeyPool = true);
@@ -1308,6 +1322,112 @@ public:
 
     /* Set the current HD master key (will reset the chain child index counters) */
     bool SetHDMasterKey(const CPubKey& key, const int cHDChainVersion=CHDChain().CURRENT_VERSION);
+
+    /** @Todo
+     *  We will need merge bip47 wallet to wallet instead of inherit.
+     *  For now will use separated class
+     * 
+     * */
+private:
+    std::vector<CBIP47Account> m_CBIP47Accounts;
+    CExtKey masterKey;
+    
+public:
+    std::vector<CKey> m_Bip47PendingKeys;
+    int m_Bip47PendingPStarIndex;
+    bool pcodeEnabled;
+    //map other wallet => map(my wallet pcode => chanel)
+    std::map<string, std::vector<CBIP47PaymentChannel>> mutable m_Bip47channels;
+    void loadBip47Wallet(CExtKey masterExtKey);
+    void LoadBip47Wallet();
+    void deriveBip47Keys();
+    std::string makeNotificationTransaction(std::string paymentCode, int accountIndex=0);
+    CBIP47PaymentChannel* findPaymentChannelForIncomingAddress(const CTransaction& tx);
+
+    bool IsNotificationScript(const CScript& scriptPubkey) const;
+    bool isNotificationTransaction(const CTransaction& tx) const;
+    bool isNotificationTransactionSent(string pcodestr) const;
+    bool isNotificationTransactionSentByMe(const CTransaction& tx) const;
+    const CBIP47PaymentChannel* findPaymentChannelFromNotificationTransaction(const CTransaction& tx) const;
+    CPaymentCode getPaymentCodeInNotificationTransaction(const CTransaction& tx, int& accIndex);
+    string findPaymentChannelForOutgoingAddress(string address) const ;
+    string findPaymentChannelForIncomingAddress(string address) const ;
+    CBitcoinAddress getAddressOfReceived(CTransaction tx) const;
+    CBitcoinAddress getAddressOfSent(CTransaction tx) const;
+    bool ReadMasterKey(CExtKey& masterKey);
+    
+    bool savePaymentCode(CPaymentCode from_pcode, int accIndex, uint256 txHash=uint256());
+
+    int getPaymentCodeCount() const;
+    bool IsMyPaymentCode(string strPaymentCode) const;
+
+
+    CBIP47Account getBIP47Account(int i) const;
+    CBIP47Account getBIP47Account(string paymentCode) const;
+    int getBIP47AccountIndex(string paymentCode) const;
+    
+    std::string getNotificationAddress(int i) const;
+
+    std::string getPaymentCode(int i) const;
+    std::string getPaymentCodeForAddress(std::string address) const;
+    
+    void deriveCBIP47Accounts(std::vector<unsigned char> hd_seed);
+    void deriveCBIP47Accounts(CExtKey masterKey);
+    std::string generateNewPCode(CExtKey masterKey);
+    std::string generateNewPCode();
+
+    void saveCBIP47PaymentChannelData(string pchannelId);
+    bool addToCBIP47PaymentChannel(CBIP47PaymentChannel paymentChannel);
+    
+    //! Adds a notification data tuple to the store, and saves it to disk
+    bool AddPCodeNotificationData(const std::string &rpcodestr, const std::string &key, const std::string &value);
+    //! Erases a notification data tuple in the store and on disk
+    bool ErasePCodeNotificationData(const std::string &rpcodestr, const std::string &key);
+    bool loadPCodeNotificationTransactions(std::vector<std::string>& vPCodeNotificationTransactions);
+    
+    bool generateNewBip47IncomingAddress(string address, CBIP47PaymentChannel* channel);
+    CBIP47PaymentChannel* getPaymentChannelFromPaymentCode(std::string pcodestr, std::string myPaymentCode="") const;
+    bool setBip47ChannelLabel(std::string pcodestr, std::string label);
+    
+    void processNotificationTransaction(CTransaction tx);
+    
+    std::string getCurrentOutgoingAddress(CBIP47PaymentChannel paymentChannel);
+    
+    bool importKey(CKey imKey, bool fRescan = false);
+    bool importBip47PendingKeys();
+    CBitcoinAddress getAddressOfKey(CPubKey pkey);
+
+    bool HaveKey(const CKeyID &address) const
+    {
+        {
+            LOCK(cs_KeyStore);
+            
+            bool ret = CCryptoKeyStore::HaveKey(address);
+            if (ret) {
+                return true;
+            }
+            if (this->mapAddressBook.count(address) > 0) 
+            {
+                map<CTxDestination, CAddressBookData>::const_iterator mi = this->mapAddressBook.find(address);
+                std::string label = mi->second.name;
+                vector<string> result;
+                stringstream ss (label);
+                string item;
+                LogPrintf("have key label:%s\n", label);
+                while (getline (ss, item, '-')) {
+                    result.push_back (item);
+                }
+                if (result.size() == 3)
+                {
+                    if (result[0].find("BIP47PAYMENT") != std::string::npos) 
+                        return true;
+                }
+            }
+            
+        }
+        return false;
+    }
+
 };
 
 /** A key allocated from the key pool. */
@@ -1386,6 +1506,7 @@ bool CWallet::DummySignTx(CMutableTransaction &txNew, const ContainerType &coins
 
         if (!ProduceSignature(DummySignatureCreator(this), scriptPubKey, sigdata))
         {
+            LogPrintf("failed to sign for tx %s index %d\n", coin.first->tx->GetHash().GetHex(), coin.second);
             return false;
         } else {
             UpdateTransaction(txNew, nIn, sigdata);
